@@ -1,0 +1,8 @@
+last-headline.json
+last-headline.json.tmp
+*.log
+.config.txt
+.prompt-history.txt
+.image-history.txt
+.video-history.txt
+.audio-history.txt
