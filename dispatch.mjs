@@ -25,6 +25,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const DEFAULT_POLL_INTERVAL_MIN = 5;
 
+// A failed fetch is retried a few times before the poll counts as failed.
+const MAX_FETCH_ATTEMPTS = 4;
+const RETRY_BASE_DELAY_MS = 1_000;
+const RETRY_MAX_DELAY_MS = 8_000;
+
 // setTimeout's delay is a signed 32-bit int; anything longer fires immediately.
 const MAX_INTERVAL_MS = 2 ** 31 - 1;
 
@@ -204,9 +209,32 @@ async function notify(message) {
 // ---------------------------------------------------------------------------
 // Poll loop
 // ---------------------------------------------------------------------------
-async function fetchPage(site) {
+/** Sleeps for the retry backoff. SIGINT during it exits the process outright. */
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Transient failures are worth retrying: no HTTP response at all (network
+ * error or timeout) or a status that may clear up (408, 425, 429, 5xx).
+ * Other statuses (403, 404, ...) will not fix themselves.
+ */
+function isRetryable(err) {
+  if (err.status === undefined) return true;
+  return err.status === 408 || err.status === 425 || err.status === 429 || err.status >= 500;
+}
+
+/** Equal-jitter exponential backoff: half fixed, half random, capped. */
+function backoffDelayMs(attempt) {
+  const ceiling = Math.min(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), RETRY_MAX_DELAY_MS);
+  return Math.round(ceiling / 2 + Math.random() * (ceiling / 2));
+}
+
+/** One fetch attempt. requestTimeoutMs applies to this attempt alone. */
+async function fetchOnce(site) {
   const res = await fetch(site.url, {
     redirect: 'follow',
+    // Fresh per attempt, so each retry gets its own timeout.
     signal: AbortSignal.timeout(site.requestTimeoutMs ?? 20_000),
     headers: {
       accept: 'text/html,application/xhtml+xml',
@@ -214,9 +242,32 @@ async function fetchPage(site) {
     },
   });
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status} ${res.statusText}`);
+    const err = new Error(`HTTP ${res.status} ${res.statusText}`);
+    err.status = res.status;
+    throw err;
   }
   return res.text();
+}
+
+/**
+ * Fetches the site's page, retrying transient failures with exponential
+ * backoff. Resolves with the HTML text, or throws once the attempts are
+ * exhausted or the failure is not retryable (e.g. HTTP 404).
+ */
+async function fetchPage(site) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await fetchOnce(site);
+    } catch (err) {
+      if (attempt >= MAX_FETCH_ATTEMPTS || !isRetryable(err)) throw err;
+      const delayMs = backoffDelayMs(attempt);
+      log(
+        'warn',
+        `fetch failed (attempt ${attempt}/${MAX_FETCH_ATTEMPTS}): ${err.message}; retrying in ${delayMs} ms`,
+      );
+      await sleep(delayMs);
+    }
+  }
 }
 
 /** An empty pattern list means "every extracted title counts". */
