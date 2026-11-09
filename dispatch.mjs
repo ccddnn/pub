@@ -33,6 +33,10 @@ const RETRY_MAX_DELAY_MS = 8_000;
 // setTimeout's delay is a signed 32-bit int; anything longer fires immediately.
 const MAX_INTERVAL_MS = 2 ** 31 - 1;
 
+// A grouped toast can't show an unbounded list, and the generic toast binding
+// allows at most four <text> lines (the title is one of them).
+const MAX_GROUP_LINES = 3;
+
 /**
  * Reads the poll interval (in minutes) from the command line:
  *   --t 10, --t=10, -t 10   -> 10 minutes
@@ -208,6 +212,37 @@ function msgFallback(headline) {
   child.on('error', (err) => log('warn', `msg.exe fallback unavailable: ${err.message}`));
 }
 
+/**
+ * Builds one toast message for the links that appeared since the last poll.
+ * A single item keeps its own title and link; several are grouped under a
+ * count so a burst of arrivals doesn't turn into a burst of toasts.
+ */
+export function newItemsMessage(siteName, links) {
+  if (links.length === 1) {
+    const link = links[0];
+    return {
+      title: link.title,
+      lines: [
+        'New item on the watched page' + (link.url ? ' — click to open the article' : ''),
+      ],
+      url: link.url,
+    };
+  }
+
+  const lines =
+    links.length <= MAX_GROUP_LINES
+      ? links.map((link) => `• ${link.title}`)
+      : [
+          ...links.slice(0, MAX_GROUP_LINES - 1).map((link) => `• ${link.title}`),
+          `… and ${links.length - (MAX_GROUP_LINES - 1)} more`,
+        ];
+  return {
+    title: `${links.length} new items on ${siteName}`,
+    lines,
+    url: null,
+  };
+}
+
 async function notify(message) {
   const toastXml = buildToastXml(message);
   const result = await runPowerShell(PS_TOAST_SCRIPT, {
@@ -360,13 +395,10 @@ async function checkOnce(site, stateFile) {
 
   for (const link of newLinks) {
     log('alert', `WATCHED LINK APPEARED\n  ${link.title}\n  ${link.url ?? '(no url)'}`);
-    await notify({
-      title: link.title,
-      lines: [
-        'New item on the watched page' + (link.url ? ' — click to open the article' : ''),
-      ],
-      url: link.url,
-    });
+  }
+
+  if (newLinks.length > 0) {
+    await notify(newItemsMessage(site.name, newLinks));
   }
 }
 
