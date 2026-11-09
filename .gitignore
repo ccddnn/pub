@@ -1,7 +1,5 @@
-last-headline.news.cn.json
-last-headline.news.cn.json.tmp
-last-headline.zaobao.china.json
-last-headline.zaobao.china.json.tmp
+last-headline.*.json
+last-headline.*.json.tmp
 *.log
 .config.txt
 .prompt-history.txt
