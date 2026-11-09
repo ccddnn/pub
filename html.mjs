@@ -55,6 +55,23 @@ export function toText(html) {
     .trim();
 }
 
+/**
+ * Splits a mirror base ("<proxy origin>/<target url>") into
+ * { origin, targetUrl }, or null when the base is not a mirror URL.
+ */
+function splitMirror(baseUrl) {
+  let url;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    return null;
+  }
+  // "/https://example.com" -> "https://example.com"; keeps the base's own query.
+  const targetUrl = url.pathname.slice(1) + url.search;
+  if (!/^https?:\/\//i.test(targetUrl)) return null;
+  return { origin: url.origin, targetUrl };
+}
+
 /** Resolves an href from the page into an absolute URL, or null. */
 export function resolveHref(rawHref, baseUrl) {
   if (!rawHref) return null;
@@ -63,7 +80,14 @@ export function resolveHref(rawHref, baseUrl) {
     return null;
   }
   try {
-    return new URL(decoded, baseUrl).href;
+    const mirror = splitMirror(baseUrl);
+    // Resolve against the *target* site so relative hrefs land on the right host.
+    const absolute = new URL(decoded, mirror ? mirror.targetUrl : baseUrl).href;
+    if (!mirror) return absolute;
+    // Already addressed through this same mirror: leave it alone.
+    const nested = splitMirror(absolute);
+    if (nested && nested.origin === mirror.origin) return absolute;
+    return `${mirror.origin}/${absolute}`;
   } catch {
     return null;
   }
@@ -156,4 +180,22 @@ export function extractSectionsById(html, ids, tagName = 'div') {
 /** Inner HTML of every <tagName> element on the page, in document order. */
 export function extractSectionsByTag(html, tagName) {
   return extractTagSections(html, new RegExp(`<${tagName}\\b[^>]*>`, 'i'), tagName);
+}
+
+const ESCAPE_RE = /[.*+?^${}()|[\]\\]/g;
+
+/**
+ * Inner HTML of every <tagName> element whose class attribute holds `className`
+ * as a whole token, in document order. Matching stops at whitespace/quotes so
+ * "media-block" does not also select "media-block-wrap" or "media-block__title".
+ * The leading whitespace in `\sclass` keeps data-class/aria-class out.
+ */
+export function extractSectionsByClass(html, className, tagName = 'div') {
+  const name = className.replace(ESCAPE_RE, '\\$&');
+  const token = `${name}(?=[\\s"'])`;
+  const openRe = new RegExp(
+    `<${tagName}\\b[^>]*\\sclass\\s*=\\s*(?:"(?:[^"]*\\s)?${token}[^"]*"|'(?:[^']*\\s)?${token}[^']*')[^>]*>`,
+    'i',
+  );
+  return extractTagSections(html, openRe, tagName);
 }
