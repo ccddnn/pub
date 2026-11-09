@@ -126,15 +126,22 @@ function xmlEscape(value) {
     .replace(/'/g, '&apos;');
 }
 
-function buildToastXml({ title, body, url }) {
+/**
+ * Builds the toast XML. All body lines go into a single <text> element,
+ * newline-separated: a ToastGeneric binding shows only the first few <text>
+ * elements (extra ones are silently dropped), but one element's text wraps
+ * and keeps its line breaks, and the renderer clips it at the toast height.
+ */
+export function buildToastXml({ title, lines = [], url }) {
   const launch = url
     ? ` activationType="protocol" launch="${xmlEscape(url)}"`
     : '';
+  const body = lines.length > 0 ? `<text>${xmlEscape(lines.join('\n'))}</text>` : '';
   return (
     `<toast${launch}>` +
     '<visual><binding template="ToastGeneric">' +
     `<text>${xmlEscape(title)}</text>` +
-    `<text>${xmlEscape(body)}</text>` +
+    body +
     '</binding></visual>' +
     '<audio silent="true" />' +
     '</toast>'
@@ -143,6 +150,10 @@ function buildToastXml({ title, body, url }) {
 
 // The XML arrives base64-encoded in NW_XML and is pasted in verbatim, so no
 // quote/encoding problems with arbitrary headline text.
+//
+// Show() does *not* throw for an unregistered AUMID — it returns success and
+// the toast is silently dropped — so the app id has to be registered in HKCU
+// first, and the deprecated PowerShell AUMID is kept as a second attempt.
 const PS_TOAST_SCRIPT = String.raw`
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
@@ -153,6 +164,11 @@ try {
   $doc = New-Object Windows.Data.Xml.Dom.XmlDocument
   $doc.LoadXml($xmlText)
   $toast = New-Object Windows.UI.Notifications.ToastNotification $doc
+  $key = 'HKCU:\SOFTWARE\Classes\AppUserModelId\News Watcher'
+  if (-not (Test-Path $key)) {
+    New-Item -Path $key -Force | Out-Null
+    New-ItemProperty -Path $key -Name DisplayName -Value 'News Watcher' -PropertyType String -Force | Out-Null
+  }
   $ids = @('News Watcher', '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe')
   $lastErr = $null
   foreach ($id in $ids) {
@@ -331,7 +347,9 @@ async function checkOnce(site, stateFile) {
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     await notify({
       title: state.headline,
-      body: `Headline changed at ${time}` + (state.url ? ' — click to open the article' : ''),
+      lines: [
+        `Headline changed at ${time}` + (state.url ? ' — click to open the article' : ''),
+      ],
       url: state.url,
     });
   } else if (site.headline) {
@@ -344,7 +362,9 @@ async function checkOnce(site, stateFile) {
     log('alert', `WATCHED LINK APPEARED\n  ${link.title}\n  ${link.url ?? '(no url)'}`);
     await notify({
       title: link.title,
-      body: 'New item on the watched page' + (link.url ? ' — click to open the article' : ''),
+      lines: [
+        'New item on the watched page' + (link.url ? ' — click to open the article' : ''),
+      ],
       url: link.url,
     });
   }
