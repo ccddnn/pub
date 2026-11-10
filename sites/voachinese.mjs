@@ -5,7 +5,7 @@
  * "media-block" whose title carries the --size-1 modifier — and every
  * media-block title (an <h4> wrapped by the story link) as a watched article.
  * Each block links to its article twice (image and title), so titles are
- * deduplicated by url.
+ * deduplicated and persisted by title.
  */
 
 import {
@@ -63,8 +63,9 @@ export const voaChinese = {
     patterns: [], // empty = every article title counts; fill in keywords later
 
     /**
-     * One { title, url, key } per media block, in document order. The lead
-     * block is skipped so a lead change raises only the headline notification.
+     * One { title, url, key } per media block, in document order. Tracked and
+     * persisted by title, so the state file stays readable. The lead block is
+     * skipped so a lead change raises only the headline notification.
      */
     extract(html) {
       const lead = voaChinese.headline.extract(html);
@@ -74,7 +75,7 @@ export const voaChinese = {
         const item = blockTitle(section);
         if (!item) continue;
 
-        const key = item.url ?? item.title;
+        const key = item.title;
         if (seenKeys.has(key) || (lead && lead.url === item.url)) continue;
         seenKeys.add(key);
         found.push({ ...item, key });

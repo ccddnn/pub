@@ -41,8 +41,9 @@ export const cnNytimes = {
     patterns: [], // empty = every article title counts; fill in keywords later
 
     /**
-     * One { title, url, key } per linked <h3>, in document order. Tracked by
-     * url so a reworded headline is not reported twice, and the lead story is
+     * One { title, url, key } per linked <h3>, in document order. Tracked and
+     * persisted by title, so the state file stays readable; a headline edited
+     * in place on the same article is reported once more. The lead story is
      * skipped so a headline change raises a single notification.
      */
     extract(html) {
@@ -55,7 +56,7 @@ export const cnNytimes = {
 
         const title = toText(section);
         if (!title) continue;
-        const key = link.url ?? title;
+        const key = title;
         if (seenKeys.has(key) || (lead && lead.url === link.url)) continue;
         seenKeys.add(key);
         found.push({ title, url: link.url, key });

@@ -48,8 +48,9 @@ export const bbcZhongwen = {
     patterns: [], // empty = every article title counts; fill in keywords later
 
     /**
-     * One { title, url, key } per promo block, in document order. The hero
-     * promo is skipped so its change raises only the headline notification.
+     * One { title, url, key } per promo block, in document order. Tracked and
+     * persisted by title, so the state file stays readable. The hero promo is
+     * skipped so its change raises only the headline notification.
      */
     extract(html) {
       const lead = bbcZhongwen.headline.extract(html);
@@ -59,7 +60,7 @@ export const bbcZhongwen = {
         const item = promoTitle(section);
         if (!item) continue;
 
-        const key = item.url ?? item.headline;
+        const key = item.headline;
         if (seenKeys.has(key) || (lead && lead.url === item.url)) continue;
         seenKeys.add(key);
         found.push({ title: item.headline, url: item.url, key });
