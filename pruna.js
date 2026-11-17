@@ -52,33 +52,52 @@ function saveConfig(config) {
 }
 
 // ---------------------------------------------------------------------------
-// History (prompts and media URLs, each with their own file)
+// History (prompts and media URLs, all in a single .history.txt file)
 // ---------------------------------------------------------------------------
 const HISTORY_MAX = 50;
-const HISTORY_PATHS = {
-  prompt: path.join(__dirname, '.prompt-history.txt'),
-  image: path.join(__dirname, '.image-history.txt'),
-  video: path.join(__dirname, '.video-history.txt'),
-  audio: path.join(__dirname, '.audio-history.txt'),
-};
+const HISTORY_PATH = path.join(__dirname, '.history.txt');
+const HISTORY_TYPES = ['prompt', 'image', 'video', 'audio'];
+
+// The file uses a flat section format: a "[type]" header line followed by the
+// values for that type, one per line. Sections are separated by a blank line.
+function loadHistoryFile() {
+  try {
+    if (!fs.existsSync(HISTORY_PATH)) return {};
+    const all = {};
+    let current = null;
+    for (const line of fs.readFileSync(HISTORY_PATH, 'utf8').split(/\r?\n/)) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const header = trimmed.match(/^\[([^\]]+)\]$/);
+      if (header) {
+        current = header[1];
+        if (!all[current]) all[current] = [];
+      } else if (current) {
+        all[current].push(trimmed);
+      }
+    }
+    return all;
+  } catch (err) {
+    console.error('Error reading history:', err);
+  }
+  return {};
+}
 
 function loadHistory(type = 'prompt') {
-  try {
-    const file = HISTORY_PATHS[type];
-    if (file && fs.existsSync(file)) {
-      return fs.readFileSync(file, 'utf8')
-        .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean);
-    }
-  } catch (err) {
-    console.error(`Error reading ${type} history:`, err);
-  }
-  return [];
+  const items = loadHistoryFile()[type];
+  return Array.isArray(items) ? items : [];
 }
 
 function saveHistory(type = 'prompt', history) {
-  fs.writeFileSync(HISTORY_PATHS[type], history.slice(0, HISTORY_MAX).join('\n') + '\n');
+  const all = loadHistoryFile();
+  all[type] = history.slice(0, HISTORY_MAX);
+  const out = [];
+  for (const t of HISTORY_TYPES) {
+    const items = all[t];
+    if (!items || !items.length) continue;
+    out.push(`[${t}]`, ...items, '');
+  }
+  fs.writeFileSync(HISTORY_PATH, out.join('\n').trimEnd() + '\n');
 }
 
 function recordHistory(type, value) {
